@@ -1,49 +1,40 @@
-"""Sauvegarde des recherches, réglages et annonces déjà vues (data/state.json)."""
+"""Sauvegarde des recherches, réglages, annonces vues et prix du marché (data/state.json)."""
 import json
 import os
+import time
 import uuid
 
 DATA_DIR = os.getenv("DATA_DIR", "data")
 PATH = os.path.join(DATA_DIR, "state.json")
+VERSION = 2
+MARKET_DAYS = 30          # on oublie les prix de plus de 30 jours
+MARKET_MAX = 600          # annonces gardées par recherche
 
 
-def _s(name, query, kind, mn=None, mx=None, exclude=(), prio=False, deals_only=False):
-    return {"id": uuid.uuid4().hex[:6], "name": name, "query": query, "kind": kind,
-            "min": mn, "max": mx, "exclude": list(exclude), "ref": None,
+def new_search(query, kind, mn=None, mx=None, exclude=(), prio=False, deals_only=False, ref=None):
+    return {"id": uuid.uuid4().hex[:6], "name": query, "query": query, "kind": kind,
+            "min": mn, "max": mx, "exclude": list(exclude), "ref": ref,
             "prio": prio, "deals_only": deals_only, "on": True}
-
-
-def default_searches():
-    return [
-        _s("Nintendo DS / DS Lite", "nintendo ds lite", "console", 20, 70),
-        _s("Nintendo DSi", "nintendo dsi", "console", 25, 70, ["xl"]),
-        _s("Game Boy", "game boy", "console", 25, 90),
-        _s("Nintendo 3DS", "nintendo 3ds", "console", 35, 110, ["xl"]),
-        _s("3DS XL", "3ds xl", "console", 50, 150, prio=True),
-        _s("PS5", "ps5 console", "console", 150, 380, prio=True),
-        _s("PS Portal", "playstation portal", "console", 80, 170, prio=True),
-        _s("Display Pokémon", "display pokemon", "tcg", 60, 220, ["vide"], prio=True),
-        _s("ETB Pokémon", "coffret dresseur d elite pokemon", "tcg", 25, 70, ["vide"]),
-        _s("Booster Pokémon", "booster pokemon scelle", "tcg", 3, 8),
-        _s("Lot cartes Pokémon", "lot cartes pokemon", "tcg", 5, 40),
-    ]
 
 
 class Store:
     def __init__(self):
         os.makedirs(DATA_DIR, exist_ok=True)
-        self.data = {"owner": None, "paused": False, "threshold": 35,
-                     "searches": default_searches(), "seen": [], "prices": {}}
+        self.data = {"version": VERSION, "owner": None, "paused": False, "threshold": 30,
+                     "searches": [], "seen": [], "market": {}}
         if os.path.exists(PATH):
             try:
                 with open(PATH, encoding="utf-8") as f:
-                    self.data.update(json.load(f))
+                    old = json.load(f)
+                if old.get("version") == VERSION:
+                    self.data.update(old)
+                else:  # ancienne version : on garde juste le propriétaire, on repart à zéro
+                    self.data["owner"] = old.get("owner")
             except (OSError, ValueError):
                 pass
         self.seen = set(self.data["seen"])
         self.dirty = False
 
-    # raccourcis
     @property
     def searches(self):
         return self.data["searches"]
@@ -59,13 +50,18 @@ class Store:
         return next((s for s in self.searches if s["id"] == sid), None)
 
     def add_search(self, d):
-        s = _s(d["query"], d["query"], d["kind"], d.get("min"), d.get("max"),
-               d.get("exclude", []), d.get("prio", False), d.get("deals_only", False))
-        s["ref"] = d.get("ref")
+        s = new_search(d["query"], d["kind"], d.get("min"), d.get("max"), d.get("exclude", []),
+                       d.get("prio", False), d.get("deals_only", False), d.get("ref"))
         self.searches.append(s)
         self.save()
         return s
 
+    def remove_search(self, s):
+        self.searches.remove(s)
+        self.data["market"].pop(s["id"], None)
+        self.save()
+
+    # ---- annonces déjà envoyées ----
     def mark_seen(self, iid):
         if iid not in self.seen:
             self.seen.add(iid)
@@ -76,15 +72,24 @@ class Store:
                 self.seen.difference_update(drop)
             self.dirty = True
 
-    def add_price(self, sid, price):
-        h = self.data["prices"].setdefault(sid, [])
-        h.append(price)
-        if len(h) > 150:
-            del h[:-150]
+    # ---- prix du marché : {sid: {item_id: [prix, modèle, date]}} ----
+    def add_market(self, sid, iid, price, key):
+        m = self.data["market"].setdefault(sid, {})
+        k = str(iid)
+        if k in m:
+            return
+        m[k] = [price, key, int(time.time())]
+        if len(m) > MARKET_MAX:
+            for old in sorted(m, key=lambda x: m[x][2])[: len(m) - MARKET_MAX]:
+                del m[old]
         self.dirty = True
 
-    def history(self, sid):
-        return self.data["prices"].get(sid, [])
+    def market_prices(self, sid, key):
+        limit = time.time() - MARKET_DAYS * 86400
+        return [p for p, k, t in self.data["market"].get(sid, {}).values() if k == key and t >= limit]
+
+    def market_size(self, sid):
+        return len(self.data["market"].get(sid, {}))
 
     def save(self):
         tmp = PATH + ".tmp"

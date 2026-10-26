@@ -82,14 +82,6 @@ def to_float(v):
         return None
 
 
-def reference_price(search: dict, history: list):
-    if search.get("ref"):
-        return float(search["ref"])
-    if len(history) >= 12:
-        return statistics.median(history)
-    return None
-
-
 # ---------- /ajouter ----------
 CONSOLE_HINTS = ["ds", "dsi", "3ds", "2ds", "game boy", "gameboy", "gba",
                  "ps5", "playstation", "portal", "switch", "psp", "console",
@@ -140,3 +132,47 @@ def parse_add(text: str):
     out["query"] = query
     out["kind"] = kind or guess_kind(query)
     return out
+
+
+# ---------- Prix du marché : on ne compare que des annonces équivalentes ----------
+SYNONYMS = [
+    (r" playstation 5 ", " ps5 "), (r" play station 5 ", " ps5 "),
+    (r" game ?boy ", " gb "), (r" gba ", " gb advance "), (r" gbc ", " gb color "),
+    (r" 3 ds ", " 3ds "), (r" 2 ds ", " 2ds "), (r" ll ", " xl "),
+    (r" digitale ", " digital "), (r" numerique ", " digital "),
+    (r" coffret dresseur d elite ", " etb "), (r" elite trainer box ", " etb "),
+    (r" tri pack ", " tripack "), (r" boosters ", " booster "),
+]
+# mots qui changent le modèle (donc le prix)
+VARIANT_WORDS = ["ds", "dsi", "3ds", "2ds", "xl", "new", "lite", "slim", "digital",
+                 "color", "advance", "sp", "pocket", "micro", "oled", "pro", "portal",
+                 "display", "etb", "booster", "tripack", "blister", "upc", "tin",
+                 "pokebox", "mini"]
+BUNDLE_WORDS = ["jeu", "jeux", "lot", "avec", "pack", "bundle", "manettes", "cartes"]
+
+
+def model_key(title: str) -> str:
+    """Signature du modèle : 'dsi|xl' ≠ 'dsi', et console seule ≠ console + jeux."""
+    t = norm(title)
+    for pat, rep in SYNONYMS:
+        t = re.sub(pat, rep, t)
+    parts = set(has_any(t, VARIANT_WORDS))
+    if parts & {"display", "etb", "tripack", "upc", "blister", "pokebox", "tin"}:
+        parts.discard("booster")  # "display 36 boosters" = un display
+    parts = sorted(parts)
+    if "+" in t or has_any(t, BUNDLE_WORDS):
+        parts.append("+lot")
+    return "|".join(parts) or "base"
+
+
+MIN_COMPARABLES = 20
+
+
+def market_price(prices: list):
+    """Médiane robuste (on enlève les 10 % extrêmes de chaque côté)."""
+    if len(prices) < MIN_COMPARABLES:
+        return None
+    p = sorted(prices)
+    cut = len(p) // 10
+    p = p[cut: len(p) - cut] or p
+    return statistics.median(p)
