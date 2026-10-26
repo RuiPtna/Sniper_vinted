@@ -221,3 +221,43 @@ TCG_JUNK = ["chaussette", "chaussettes", "pull", "sweat", "t shirt", "tshirt", "
 
 def is_tcg_junk(title: str) -> bool:
     return bool(has_any(norm(title), TCG_JUNK))
+
+
+# ---------- Consoles : reconnaître un jeu même sans le mot "jeu" ----------
+# ("Mario Kart DS", "Pokémon Platine DS"... : le titre contient des mots qui ne décrivent pas une console)
+_CONSOLE_VOCAB = """
+nintendo console ds dsi 3ds 2ds lite xl new gb gameboy color advance sp pocket micro ps 5 ps5
+playstation sony portal remote player slim digital standard edition limitee limite collector pro oled
+switch fat phat original origine modele version model
+noir noire blanc blanche rose rouge bleu bleue vert verte gris grise argent argente or dore violet
+violette orange jaune turquoise marine metallise metallisee mat brillant bordeaux corail menthe cosmos
+aqua ice pearl perle crimson cobalt flame red blue black white pink silver gold purple green transparent
+tres bon bonne bel etat neuf neuve comme parfait parfaite excellent fonctionne fonctionnel fonctionnelle
+occasion propre testee teste complete complet boite boitier notice sans chargeur stylet cable housse etui
+carte sd memoire go gb avec et en de du la le les un une pour plus region free pal fr francais francaise
+japonaise jap us import rare vintage retro manette coque protection alimentation batterie lot pack bundle
+console vendu vend vente top super quasi jamais servi utilise peu tbe be rayure rayures leger legere
+"""
+CONSOLE_VOCAB = {_stem(w) for w in _CONSOLE_VOCAB.split()}
+GAME_DESC = ["jeu", "le jeu", "cartouche", "jeu complet", "jeu en", "jeu seul", "jeu fonctionne"]
+CONSOLE_DESC = ["chargeur", "stylet", "console", "batterie", "s allume", "ecran", "charniere"]
+
+
+def title_game_score(title: str, query: str) -> int:
+    """Nombre de mots du titre qui ne décrivent pas une console (titre de jeu probable)."""
+    q = set(query_tokens(query))
+    unknown = [w for w in query_tokens(title)
+               if w not in CONSOLE_VOCAB and w not in q and not w.isdigit() and len(w) > 1]
+    return len(unknown)
+
+
+def looks_like_game(title: str, query: str) -> bool:
+    t = norm(title)
+    if "+" in t or has_any(t, BUNDLE_MARKERS + ["lot"]):
+        return False  # "console", "avec", "pack", "lot" -> c'est une console
+    return title_game_score(title, query) >= 2
+
+
+def desc_says_game(desc: str) -> bool:
+    d = norm(desc)
+    return bool(has_any(d, GAME_DESC)) and not has_any(d, CONSOLE_DESC)

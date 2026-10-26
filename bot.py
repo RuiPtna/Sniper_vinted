@@ -181,7 +181,7 @@ class Engine:
             return
         if s["kind"] != "console" and F.is_tcg_junk(title):
             return
-        if s["kind"] == "console" and F.is_unwanted_console(title):
+        if s["kind"] == "console" and (F.is_unwanted_console(title) or F.looks_like_game(title, s["query"])):
             return
         if F.find_warnings(title, s["kind"]):
             return  # une console HS ne doit pas faire baisser le prix de référence
@@ -226,7 +226,7 @@ class Engine:
             return False
         if F.excluded(title, s.get("exclude", [])):
             return False
-        if s["kind"] == "console" and F.is_unwanted_console(title):
+        if s["kind"] == "console" and (F.is_unwanted_console(title) or F.looks_like_game(title, s["query"])):
             return False
         return True
 
@@ -244,6 +244,17 @@ class Engine:
         a = {"search": s, "item": it, "price": price, "ts": ts, "ref": ref, "deal": deal,
              "key": key, "n": len(comparables), "warnings": warnings, "desc": None,
              "total": F.to_float(it.get("total_item_price"))}
+        if s["kind"] == "console":
+            # on lit la description AVANT d'alerter : si c'est un jeu, on ne t'embête pas
+            try:
+                desc = await asyncio.wait_for(client.description(item_url(it)), timeout=4)
+            except Exception:
+                desc = None
+            if desc is not None:
+                if F.desc_says_game(desc):
+                    log.info("Jeu ignoré : %s", title)
+                    return
+                self.apply_description(a, desc)
         chat = store.get("owner")
         photo = (it.get("photo") or {}).get("url")
         try:
@@ -260,18 +271,22 @@ class Engine:
         self.alerts[it["id"]] = a
         if len(self.alerts) > 500:
             self.alerts.pop(next(iter(self.alerts)))
-        asyncio.create_task(self.fill_description(a))
+        if a["desc"] is None:
+            asyncio.create_task(self.fill_description(a))
+
+    def apply_description(self, a, desc):
+        a["desc"] = desc
+        extra = F.find_warnings(desc, a["search"]["kind"])
+        if extra:
+            a["warnings"] = sorted(set(a["warnings"]) | set(extra))
+            a["deal"] = 0  # panne / fake dans la description : ce n'est plus une affaire
 
     async def fill_description(self, a):
         try:
             desc = await client.description(item_url(a["item"]))
         except Exception:
             desc = ""
-        a["desc"] = desc
-        extra = F.find_warnings(desc, a["search"]["kind"])
-        if extra:
-            a["warnings"] = sorted(set(a["warnings"]) | set(extra))
-            a["deal"] = 0  # panne / fake dans la description : ce n'est plus une affaire
+        self.apply_description(a, desc)
         try:
             if a["msg"].photo:
                 await a["msg"].edit_caption(build_caption(a), parse_mode="HTML", reply_markup=keyboard(a))
