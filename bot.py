@@ -155,6 +155,7 @@ class Engine:
             ts = ((it.get("photo") or {}).get("high_resolution") or {}).get("timestamp")
             if ts and time.time() - ts > MAX_AGE:
                 continue
+            ts = ts or time.time()  # la nouvelle API ne donne plus la date : on prend l'heure de détection
             await self.alert(s, it, price, ts)
         self.primed.add(s["id"])
 
@@ -360,6 +361,17 @@ async def cmd_status(update, ctx):
 
 
 @owner_only
+async def cmd_debug(update, ctx):
+    import json
+    raw = client.last_raw
+    if raw is None:
+        await update.message.reply_text("Aucune réponse Vinted reçue pour l'instant.")
+        return
+    txt = json.dumps(raw, ensure_ascii=False, indent=1)[:3500]
+    await update.message.reply_text("Exemple brut renvoyé par Vinted :\n" + txt)
+
+
+@owner_only
 async def on_button(update, ctx):
     q = update.callback_query
     kind, _, arg = q.data.partition(":")
@@ -429,6 +441,7 @@ def main():
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("reprendre", cmd_resume))
     app.add_handler(CommandHandler("statut", cmd_status))
+    app.add_handler(CommandHandler("debug", cmd_debug))
     app.add_handler(CallbackQueryHandler(on_button))
     app.run_polling(drop_pending_updates=True, bootstrap_retries=-1, close_loop=False)
 
