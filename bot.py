@@ -177,6 +177,10 @@ class Engine:
         title = it.get("title", "")
         if price <= 1 or F.excluded(title, s.get("exclude", [])):
             return
+        if not F.matches_query(title, s["query"]):
+            return
+        if s["kind"] != "console" and F.is_tcg_junk(title):
+            return
         if s["kind"] == "console" and F.is_unwanted_console(title):
             return
         if F.find_warnings(title, s["kind"]):
@@ -212,6 +216,10 @@ class Engine:
 
     def wanted(self, s, it, price):
         title = it.get("title", "")
+        if not F.matches_query(title, s["query"]):
+            return False
+        if s["kind"] != "console" and F.is_tcg_junk(title):
+            return False
         if s.get("min") and price < s["min"]:
             return False
         if s.get("max") and price > s["max"]:

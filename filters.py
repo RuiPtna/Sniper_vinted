@@ -176,3 +176,48 @@ def market_price(prices: list):
     cut = len(p) // 10
     p = p[cut: len(p) - cut] or p
     return statistics.median(p)
+
+
+# ---------- Le titre doit contenir TOUS les mots de ta recherche ----------
+# (Vinted renvoie aussi des annonces qui n'ont qu'un mot en commun : "30 ans" -> chaussettes...)
+EXTRA_SYNONYMS = [
+    (r" coffret dresseur d? ?elite ", " etb "), (r" dresseur d? ?elite ", " etb "),
+    (r" elite trainer box ", " etb "), (r" trainer box ", " etb "),
+]
+# mots facultatifs : souvent absents du titre même quand c'est le bon produit
+OPTIONAL_WORDS = {"nintendo", "console", "sony", "playstation",
+                  "francais", "fr", "neuf", "scelle", "scellee", "de", "d", "la",
+                  "le", "les", "du", "et", "en", "pour", "the", "edition"}
+
+
+def _stem(w: str) -> str:
+    if len(w) > 3 and w[-1] in "sx":
+        return w[:-1]          # boosters -> booster, jeux -> jeu
+    return w
+
+
+def query_tokens(text: str) -> list:
+    t = norm(text)
+    for pat, rep in EXTRA_SYNONYMS + SYNONYMS:
+        t = re.sub(pat, rep, t)
+    t = re.sub(r"(\d)([a-z])", r"\1 \2", t)   # "30ans" -> "30 ans" (des deux côtés)
+    t = re.sub(r"([a-z])(\d)", r"\1 \2", t)
+    return [_stem(w) for w in t.split() if w != "+"]
+
+
+def matches_query(title: str, query: str) -> bool:
+    need = [w for w in query_tokens(query) if w not in OPTIONAL_WORDS]
+    have = set(query_tokens(title))
+    return all(w in have for w in need)
+
+
+# Pour le TCG : objets "à thème" qui ne sont pas des cartes / produits scellés
+TCG_JUNK = ["chaussette", "chaussettes", "pull", "sweat", "t shirt", "tshirt", "tee shirt",
+            "hoodie", "casquette", "bonnet", "pyjama", "ballon", "ballons", "gateau",
+            "decoration", "deco", "guirlande", "bougie", "invitation", "peluche", "figurine",
+            "lego", "costume", "deguisement", "mug", "tasse", "poster", "puzzle", "sac",
+            "trousse", "montre", "lampe", "veilleuse", "coque", "tapis", "drap", "housse de couette"]
+
+
+def is_tcg_junk(title: str) -> bool:
+    return bool(has_any(norm(title), TCG_JUNK))
