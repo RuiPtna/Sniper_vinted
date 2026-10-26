@@ -395,17 +395,20 @@ async def autosave():
 async def post_init(app: Application):
     engine = Engine(app)
     app.bot_data["engine"] = engine
-    await app.bot.set_my_commands([
-        BotCommand("liste", "Mes recherches"),
-        BotCommand("ajouter", "Ajouter une recherche"),
-        BotCommand("statut", "État du bot"),
-        BotCommand("pause", "Mettre en pause"),
-        BotCommand("reprendre", "Relancer"),
-        BotCommand("seuil", "Seuil des bons plans (%)"),
-        BotCommand("max", "Prix max d'une recherche"),
-        BotCommand("min", "Prix min d'une recherche"),
-        BotCommand("aide", "Aide"),
-    ])
+    try:
+        await app.bot.set_my_commands([
+            BotCommand("liste", "Mes recherches"),
+            BotCommand("ajouter", "Ajouter une recherche"),
+            BotCommand("statut", "État du bot"),
+            BotCommand("pause", "Mettre en pause"),
+            BotCommand("reprendre", "Relancer"),
+            BotCommand("seuil", "Seuil des bons plans (%)"),
+            BotCommand("max", "Prix max d'une recherche"),
+            BotCommand("min", "Prix min d'une recherche"),
+            BotCommand("aide", "Aide"),
+        ])
+    except Exception as e:  # pas grave si Telegram est lent au démarrage
+        log.warning("Menu des commandes non défini: %s", e)
     app.create_task(engine.run())
     app.create_task(autosave())
     if store.get("owner"):
@@ -413,7 +416,10 @@ async def post_init(app: Application):
 
 
 def main():
-    app = Application.builder().token(TOKEN).post_init(post_init).build()
+    app = (Application.builder().token(TOKEN).post_init(post_init)
+           .connect_timeout(30).read_timeout(30).write_timeout(30).pool_timeout(30)
+           .get_updates_connect_timeout(30).get_updates_read_timeout(40)
+           .build())
     app.add_handler(CommandHandler(["start", "aide"], cmd_start))
     app.add_handler(CommandHandler("liste", cmd_list))
     app.add_handler(CommandHandler("ajouter", cmd_add))
@@ -424,8 +430,19 @@ def main():
     app.add_handler(CommandHandler("reprendre", cmd_resume))
     app.add_handler(CommandHandler("statut", cmd_status))
     app.add_handler(CallbackQueryHandler(on_button))
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, bootstrap_retries=-1, close_loop=False)
+
+
+def run_forever():
+    """Si Telegram ne répond pas au démarrage, on réessaie au lieu de crasher."""
+    while True:
+        try:
+            main()
+            return
+        except Exception as e:
+            log.error("Démarrage raté (%s), nouvel essai dans 10 s", e)
+            time.sleep(10)
 
 
 if __name__ == "__main__":
-    main()
+    run_forever()
