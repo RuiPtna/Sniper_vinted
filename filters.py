@@ -239,8 +239,25 @@ japonaise jap us import rare vintage retro manette coque protection alimentation
 console vendu vend vente top super quasi jamais servi utilise peu tbe be rayure rayures leger legere
 """
 CONSOLE_VOCAB = {_stem(w) for w in _CONSOLE_VOCAB.split()}
-GAME_DESC = ["jeu", "le jeu", "cartouche", "jeu complet", "jeu en", "jeu seul", "jeu fonctionne"]
-CONSOLE_DESC = ["chargeur", "stylet", "console", "batterie", "s allume", "ecran", "charniere"]
+GAME_DESC = ["jeu", "cartouche", "jeu complet", "jeu seul", "jeu fonctionne", "boitier",
+             "notice", "livret", "compatible", "fonctionne sur"]
+# "console" seul n'est pas un indice : "jeu qui fonctionne sur console"
+CONSOLE_DESC = ["chargeur", "stylet", "stylets", "batterie", "s allume", "ecran", "ecrans", "charniere",
+                "console fonctionne", "console en", "console nintendo", "la console", "cette console"]
+# noms de jeux / licences : présents dans un titre sans "console/édition" -> c'est un jeu
+GAME_TITLES = ["mario", "kart", "zelda", "layton", "nintendogs", "sims", "fifa", "lego", "sonic",
+               "kirby", "yoshi", "wario", "animal crossing", "brain training", "cooking mama",
+               "metroid", "dragon quest", "final fantasy", "call of duty", "gta", "spiderman",
+               "spider man", "harry potter", "star wars", "cars", "tetris", "donkey kong", "luigi",
+               "smash", "monster hunter", "inazuma", "professeur", "kingdom hearts", "naruto",
+               "dragon ball", "minecraft", "just dance", "petz", "imagine", "big brain",
+               "art academy", "pictionary", "puzzle", "pokemon version", "version", "jeux",
+               "platine", "diamant", "perle", "heartgold", "soulsilver", "noir", "blanc",
+               "rubis", "saphir", "emeraude", "x et y", "soleil", "lune", "ultra soleil", "ultra lune",
+               "rouge", "bleu", "jaune", "or", "argent", "cristal", "donjon mystere", "ranger"]
+CONSOLE_MARKERS = ["console", "edition", "limitee", "limite", "collector", "pack", "bundle",
+                   "avec", "lot", "chargeur", "stylet", "lite", "xl", "dsi", "phat", "fat", "slim",
+                   "new", "color", "advance", "sp", "pocket", "micro", "digital", "standard", "portal"]
 
 
 def title_game_score(title: str, query: str) -> int:
@@ -255,9 +272,25 @@ def looks_like_game(title: str, query: str) -> bool:
     t = norm(title)
     if "+" in t or has_any(t, BUNDLE_MARKERS + ["lot"]):
         return False  # "console", "avec", "pack", "lot" -> c'est une console
+    q = norm(query)
+    # mots de couleur/version ignorés s'ils font partie de ta recherche
+    licences = [w for w in has_any(t, GAME_TITLES) if f" {w} " not in q]
+    colour_words = {"noir", "blanc", "rouge", "bleu", "jaune", "or", "argent", "perle"}
+    strong = [w for w in licences if w not in colour_words]
+    if strong and not has_any(t, ["console", "edition", "limitee", "limite", "collector"]):
+        return True   # "Mario Kart DS", "Pokémon version Platine", "Nintendogs"
+    if licences and not strong and " pokemon " in t and not has_any(t, CONSOLE_MARKERS):
+        return True   # "Pokémon Noir DS" (pas de lite/xl/console...)
+    if has_any(t, ["edition", "limitee", "limite", "collector"]):
+        return False  # console édition spéciale (Pokémon, Hello Kitty...)
+    if has_any(t, ["lite", "xl", "dsi", "phat", "fat", "slim", "color", "advance", "sp",
+                   "pocket", "micro", "digital", "oled", "portal", "2ds", "3ds"]) and f" {norm(query).split()[-1]} " not in " 3ds 2ds ":
+        return title_game_score(title, query) >= 3  # modèle cité : on est plus tolérant
     return title_game_score(title, query) >= 2
 
 
 def desc_says_game(desc: str) -> bool:
     d = norm(desc)
-    return bool(has_any(d, GAME_DESC)) and not has_any(d, CONSOLE_DESC)
+    game = len(has_any(d, GAME_DESC))
+    console = len(has_any(d, CONSOLE_DESC))
+    return game >= 1 and console == 0

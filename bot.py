@@ -22,6 +22,11 @@ log = logging.getLogger("bot")
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 RATE = float(os.getenv("RATE", "2.5"))                    # requêtes Vinted par seconde
 MARKET_EVERY = int(os.getenv("MARKET_EVERY", "60"))       # relevé du marché toutes les X s par recherche
+CONSOLE_CATALOG = os.getenv("CONSOLE_CATALOG", "3025")     # catégorie Vinted "Consoles" (vide = désactivé)
+
+
+def catalog_for(s):
+    return CONSOLE_CATALOG if s["kind"] == "console" and CONSOLE_CATALOG else None
 
 store = Store()
 client = VintedClient()
@@ -188,7 +193,7 @@ class Engine:
         store.add_market(s["id"], it.get("id"), price, F.model_key(title))
 
     async def poll_market(self, s):
-        items = await client.search(s["query"], per_page=96)
+        items = await client.search(s["query"], per_page=96, catalog=catalog_for(s))
         for it in items:
             price = F.to_float(it.get("price"))
             if price is not None and it.get("id"):
@@ -196,7 +201,7 @@ class Engine:
 
     # --- nouvelles annonces sous ton prix max ---
     async def poll_new(self, s):
-        items = await client.search(s["query"], s.get("min"), s.get("max"))
+        items = await client.search(s["query"], s.get("min"), s.get("max"), catalog=catalog_for(s))
         first = s["id"] not in self.primed
         for it in reversed(items):
             iid = it.get("id")

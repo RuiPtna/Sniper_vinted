@@ -102,6 +102,7 @@ class VintedClient:
         self.cookie_time = 0.0
         self.requests = 0
         self.last_raw = None
+        self.catalog_ok = True
 
     async def warmup(self):
         """Récupère un cookie de session anonyme (nécessaire pour l'API)."""
@@ -127,7 +128,7 @@ class VintedClient:
             h["x-anon-id"] = anon
         return h
 
-    async def search(self, query, price_from=None, price_to=None, per_page=30):
+    async def search(self, query, price_from=None, price_to=None, per_page=30, catalog=None):
         if not self.cookie_time or time.time() - self.cookie_time > 1800:
             await self.warmup()
         params = {"search_text": query, "order": "newest_first",
@@ -136,6 +137,8 @@ class VintedClient:
             params["price_from"] = int(price_from)
         if price_to:
             params["price_to"] = int(price_to)
+        if catalog and self.catalog_ok:
+            params["attribute_ids[catalog]"] = catalog  # ex. 3025 = catégorie "Consoles"
         for attempt in range(3):
             r = await self.s.get(API_DOMAIN + "/svc-catalogue/items",
                                  params=params, headers=self._token_headers())
@@ -155,6 +158,11 @@ class VintedClient:
                 continue
             if r.status_code in (403, 429):
                 raise Blocked(r.status_code)
+            if r.status_code == 400 and "attribute_ids[catalog]" in params:
+                log.warning("Filtre catégorie refusé par Vinted, recherche sans catégorie")
+                self.catalog_ok = False
+                params.pop("attribute_ids[catalog]")
+                continue
             raise RuntimeError(f"Recherche Vinted : HTTP {r.status_code} {r.text[:120]}")
         return []
 
